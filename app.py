@@ -15,13 +15,42 @@ except (KeyError, FileNotFoundError):
 
 client = genai.Client(api_key=api_key)
 
+# 上から順に試し、混雑・一時エラー時は次のモデルへ自動で切り替えます
+GEMINI_MODELS = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+]
+
 
 def ask_ai(prompt):
-    response = client.models.generate_content(
-        model="gemini-3.7-flash",
-        contents=prompt,
-    )
-    return response.text.strip()
+    last_error = None
+
+    for model in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+            )
+            if response.text:
+                return response.text.strip()
+        except Exception as e:
+            last_error = e
+            error_text = str(e)
+
+            # 503（混雑・一時停止）、429（レート制限）、500系なら次のモデルを試す
+            temporary_error = any(
+                code in error_text
+                for code in ["429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]
+            )
+            if temporary_error:
+                continue
+            raise
+
+    raise RuntimeError(
+        "Geminiが一時的に混み合っています。少し時間をおいて、もう一度お試しください。"
+    ) from last_error
 
 
 st.subheader("① 給食から食育テーマを発掘")
