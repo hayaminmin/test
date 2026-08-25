@@ -16,7 +16,6 @@ st.set_page_config(page_title="AI食育だよりメーカー", page_icon="🍚",
 st.title("🍚 AI食育だよりメーカー")
 st.caption("給食を教材にして、児童が『なぜ？』と思える食育だよりをAIと一緒に作ります。")
 
-# Gemini APIキーは Streamlit Secrets から読み取ります
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except (KeyError, FileNotFoundError):
@@ -25,7 +24,6 @@ except (KeyError, FileNotFoundError):
 
 client = genai.Client(api_key=api_key)
 
-# 上から順に試し、混雑・一時エラー時は次のモデルへ自動で切り替えます
 GEMINI_MODELS = [
     "gemini-3.7-flash",
     "gemini-3.6-flash",
@@ -36,33 +34,20 @@ GEMINI_MODELS = [
 
 def ask_ai(prompt):
     last_error = None
-
     for model in GEMINI_MODELS:
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-            )
+            response = client.models.generate_content(model=model, contents=prompt)
             if response.text:
                 return response.text.strip()
         except Exception as e:
             last_error = e
             error_text = str(e)
-
-            temporary_error = any(
-                code in error_text
-                for code in ["429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]
-            )
-            if temporary_error:
+            if any(code in error_text for code in ["429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]):
                 continue
             raise
-
-    raise RuntimeError(
-        "Geminiが一時的に混み合っています。少し時間をおいて、もう一度お試しください。"
-    ) from last_error
+    raise RuntimeError("Geminiが一時的に混み合っています。少し時間をおいて、もう一度お試しください。") from last_error
 
 
-# PDF用の日本語フォント（外部フォントファイル不要）
 pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
 pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
 
@@ -84,58 +69,31 @@ def create_pdf(title, hook, article, recipe_name, recipe_text, home_try):
     )
 
     title_style = ParagraphStyle(
-        "TitleJP",
-        fontName="HeiseiKakuGo-W5",
-        fontSize=18,
-        leading=25,
-        alignment=TA_CENTER,
-        spaceAfter=10 * mm,
-        wordWrap="CJK",
+        "TitleJP", fontName="HeiseiKakuGo-W5", fontSize=18, leading=25,
+        alignment=TA_CENTER, spaceAfter=10 * mm, wordWrap="CJK"
     )
     heading_style = ParagraphStyle(
-        "HeadingJP",
-        fontName="HeiseiKakuGo-W5",
-        fontSize=12,
-        leading=18,
-        spaceBefore=5 * mm,
-        spaceAfter=2 * mm,
-        wordWrap="CJK",
+        "HeadingJP", fontName="HeiseiKakuGo-W5", fontSize=12, leading=18,
+        spaceBefore=5 * mm, spaceAfter=2 * mm, wordWrap="CJK"
     )
     body_style = ParagraphStyle(
-        "BodyJP",
-        fontName="HeiseiMin-W3",
-        fontSize=10.5,
-        leading=18,
-        spaceAfter=4 * mm,
-        wordWrap="CJK",
+        "BodyJP", fontName="HeiseiMin-W3", fontSize=10.5, leading=18,
+        spaceAfter=4 * mm, wordWrap="CJK"
     )
     question_style = ParagraphStyle(
-        "QuestionJP",
-        fontName="HeiseiKakuGo-W5",
-        fontSize=11,
-        leading=18,
-        leftIndent=4 * mm,
-        rightIndent=4 * mm,
-        spaceAfter=5 * mm,
-        wordWrap="CJK",
+        "QuestionJP", fontName="HeiseiKakuGo-W5", fontSize=11, leading=18,
+        leftIndent=4 * mm, rightIndent=4 * mm, spaceAfter=5 * mm, wordWrap="CJK"
     )
 
     story = [Paragraph(pdf_paragraph_text(title), title_style)]
-
     if hook:
         story.append(Paragraph("みんなに質問！", heading_style))
         story.append(Paragraph(pdf_paragraph_text(hook), question_style))
-
     story.append(Paragraph(pdf_paragraph_text(article), body_style))
 
     if recipe_text:
         story.append(Spacer(1, 2 * mm))
-        story.append(
-            Paragraph(
-                pdf_paragraph_text(f"おうちで作ってみよう！『{recipe_name}』"),
-                heading_style,
-            )
-        )
+        story.append(Paragraph(pdf_paragraph_text(f"おうちで作ってみよう！『{recipe_name}』"), heading_style))
         story.append(Paragraph(pdf_paragraph_text(recipe_text), body_style))
 
     if home_try:
@@ -155,10 +113,7 @@ viewpoint = st.multiselect(
     ["栄養", "旬・季節", "食文化", "地域・地産地消", "食品ロス", "調理の科学", "食べ方・味わい方", "給食室の工夫"],
     default=["調理の科学", "給食室の工夫"],
 )
-menu = st.text_area(
-    "今日・今月取り上げたい給食の献立",
-    "麦ごはん、牛乳、さばの塩焼き、切干大根の煮物、みそ汁",
-)
+menu = st.text_area("今日・今月取り上げたい給食の献立", "麦ごはん、牛乳、さばの塩焼き、切干大根の煮物、みそ汁")
 real_point = st.text_area(
     "あなたの学校・給食室ならではの情報",
     placeholder="例：切干大根は煮崩れないよう、調味料を入れる順番を工夫している／地元産の○○を使っている など",
@@ -171,15 +126,14 @@ if st.button("✨ AIに食育テーマを3案考えてもらう", use_container_
     prompt = f"""
 あなたは、学校給食を教材に変えることが得意な栄養教諭の編集パートナーです。
 次の献立から、児童向け食育だよりに使える『ありきたりではない食育テーマ』を3案考えてください。
-
 対象：{grade}
 献立：{menu}
 重視する視点：{', '.join(viewpoint) if viewpoint else '特に指定なし'}
 学校・給食室ならではの情報：{real_point or '特になし'}
 
 条件：
-- 『○○には栄養があります』『好き嫌いせず食べましょう』だけの一般論にしない。
-- 児童が実際の給食を見たり、食べたりしながら確かめたくなる切り口にする。
+- 一般論だけにしない。
+- 児童が給食を見たり食べたりしながら確かめたくなる切り口にする。
 - 対象学年に合う言葉にする。
 - 確信のない事実を作らない。
 - 3案は互いに違う方向性にする。
@@ -192,8 +146,7 @@ if st.button("✨ AIに食育テーマを3案考えてもらう", use_container_
 ]
 """
     try:
-        result = ask_ai(prompt)
-        result = result.replace("```json", "").replace("```", "").strip()
+        result = ask_ai(prompt).replace("```json", "").replace("```", "").strip()
         st.session_state.ideas = json.loads(result)
     except Exception as e:
         st.error(f"AIの呼び出しに失敗しました：{e}")
@@ -241,25 +194,18 @@ if st.button("✍️ 選んだテーマから本文を作る", use_container_wid
         except Exception as e:
             st.error(f"AIの呼び出しに失敗しました：{e}")
 
-article = st.text_area(
-    "AIが作った本文（ここで自由に直せます）",
-    st.session_state.article,
-    height=240,
-) if st.session_state.article else ""
+if st.session_state.article:
+    article = st.text_area("AIが作った本文（ここで自由に直せます）", st.session_state.article, height=240, key="article_edit")
+else:
+    article = ""
 
 st.divider()
 st.subheader("③ 給食レシピを家庭向けに")
 recipe_name = st.text_input("紹介する料理名", "切干大根の煮物")
 original_servings = st.number_input("元のレシピの人数", min_value=1, value=1, step=1)
 st.caption("材料は『材料名, 数量, 単位』の形で1行ずつ入力してください。例：切干大根, 12, g")
-ingredients_text = st.text_area(
-    "材料",
-    "切干大根, 12, g\nにんじん, 10, g\n油揚げ, 8, g",
-)
-steps = st.text_area(
-    "給食での作り方・調理手順",
-    "1. 切干大根を水で戻す。\n2. 材料を食べやすい大きさに切る。\n3. 煮汁で煮て味を含ませる。",
-)
+ingredients_text = st.text_area("材料", "切干大根, 12, g\nにんじん, 10, g\n油揚げ, 8, g")
+steps = st.text_area("給食での作り方・調理手順", "1. 切干大根を水で戻す。\n2. 材料を食べやすい大きさに切る。\n3. 煮汁で煮て味を含ませる。")
 recipe_point = st.text_area(
     "給食ならではのコツ・家庭に伝えたいこと",
     placeholder="例：大量調理では仕上がり時間から逆算して、食感が残るように加熱しています。",
@@ -294,7 +240,6 @@ if st.button("🍳 AIに家庭向けレシピ文へ整えてもらう", use_cont
 {chr(10).join(converted_lines)}
 給食での作り方：{steps}
 給食ならではのコツ：{recipe_point or '特になし'}
-
 入力されていない材料や分量を勝手に追加せず、材料、作り方、給食のプロのひとこと、の3項目で簡潔にまとめてください。
 """
     try:
@@ -302,33 +247,23 @@ if st.button("🍳 AIに家庭向けレシピ文へ整えてもらう", use_cont
     except Exception as e:
         st.error(f"AIの呼び出しに失敗しました：{e}")
 
-recipe_text = st.text_area(
-    "AIが整えた家庭向けレシピ（自由に修正できます）",
-    st.session_state.recipe_text,
-    height=260,
-) if st.session_state.recipe_text else ""
+if st.session_state.recipe_text:
+    recipe_text = st.text_area("AIが整えた家庭向けレシピ（自由に修正できます）", st.session_state.recipe_text, height=260, key="recipe_edit")
+else:
+    recipe_text = ""
 
 st.divider()
 st.subheader("④ 家庭につなぐ")
 home_try = st.text_input("おうちでTRY", "今日の給食で見つけた『へえ！』を、家の人に1つ話してみよう。")
 
 st.divider()
-st.subheader("⑤ 完成原稿")
+st.subheader("⑤ 完成原稿・保存")
 newsletter_title = st.text_input(
     "食育だよりのタイトル",
     selected['title'] if selected else "給食から見つける 食べもののひみつ",
 )
 
-if "final_ready" not in st.session_state:
-    st.session_state.final_ready = False
-
-if st.button("📄 A4食育だより原稿をまとめる", use_container_width=True):
-    if not article:
-        st.warning("本文を作成してからまとめてください。")
-    else:
-        st.session_state.final_ready = True
-
-if st.session_state.final_ready and article:
+if article:
     hook = selected["hook"] if selected else ""
 
     st.header(f"🥢 {newsletter_title}")
@@ -356,15 +291,9 @@ if st.session_state.final_ready and article:
 {home_try}
 """
 
-    pdf_data = create_pdf(
-        newsletter_title,
-        hook,
-        article,
-        recipe_name,
-        recipe_text,
-        home_try,
-    )
+    pdf_data = create_pdf(newsletter_title, hook, article, recipe_name, recipe_text, home_try)
 
+    st.caption("上の内容を修正すると、下の保存データにもその内容が反映されます。")
     col1, col2 = st.columns(2)
     with col1:
         st.download_button(
@@ -382,5 +311,7 @@ if st.session_state.final_ready and article:
             mime="text/plain",
             use_container_width=True,
         )
+else:
+    st.info("②で本文を作成すると、ここに完成原稿とPDF保存ボタンが表示されます。")
 
 st.caption("AIの提案は下書きです。学校名、産地、栄養価、アレルギー情報などは必ず実際の資料で確認してから使用してください。")
