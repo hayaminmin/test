@@ -1,6 +1,16 @@
 import json
+from io import BytesIO
+from xml.sax.saxutils import escape
+
 import streamlit as st
 from google import genai
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
 st.set_page_config(page_title="AI食育だよりメーカー", page_icon="🍚", layout="centered")
 st.title("🍚 AI食育だよりメーカー")
@@ -39,7 +49,6 @@ def ask_ai(prompt):
             last_error = e
             error_text = str(e)
 
-            # 503（混雑・一時停止）、429（レート制限）、500系なら次のモデルを試す
             temporary_error = any(
                 code in error_text
                 for code in ["429", "500", "502", "503", "504", "UNAVAILABLE", "RESOURCE_EXHAUSTED"]
@@ -51,6 +60,92 @@ def ask_ai(prompt):
     raise RuntimeError(
         "Geminiが一時的に混み合っています。少し時間をおいて、もう一度お試しください。"
     ) from last_error
+
+
+# PDF用の日本語フォント（外部フォントファイル不要）
+pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
+pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+
+
+def pdf_paragraph_text(text):
+    return escape(text or "").replace("\n", "<br/>")
+
+
+def create_pdf(title, hook, article, recipe_name, recipe_text, home_try):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+        title=title,
+    )
+
+    title_style = ParagraphStyle(
+        "TitleJP",
+        fontName="HeiseiKakuGo-W5",
+        fontSize=18,
+        leading=25,
+        alignment=TA_CENTER,
+        spaceAfter=10 * mm,
+        wordWrap="CJK",
+    )
+    heading_style = ParagraphStyle(
+        "HeadingJP",
+        fontName="HeiseiKakuGo-W5",
+        fontSize=12,
+        leading=18,
+        spaceBefore=5 * mm,
+        spaceAfter=2 * mm,
+        wordWrap="CJK",
+    )
+    body_style = ParagraphStyle(
+        "BodyJP",
+        fontName="HeiseiMin-W3",
+        fontSize=10.5,
+        leading=18,
+        spaceAfter=4 * mm,
+        wordWrap="CJK",
+    )
+    question_style = ParagraphStyle(
+        "QuestionJP",
+        fontName="HeiseiKakuGo-W5",
+        fontSize=11,
+        leading=18,
+        leftIndent=4 * mm,
+        rightIndent=4 * mm,
+        spaceAfter=5 * mm,
+        wordWrap="CJK",
+    )
+
+    story = [Paragraph(pdf_paragraph_text(title), title_style)]
+
+    if hook:
+        story.append(Paragraph("みんなに質問！", heading_style))
+        story.append(Paragraph(pdf_paragraph_text(hook), question_style))
+
+    story.append(Paragraph(pdf_paragraph_text(article), body_style))
+
+    if recipe_text:
+        story.append(Spacer(1, 2 * mm))
+        story.append(
+            Paragraph(
+                pdf_paragraph_text(f"おうちで作ってみよう！『{recipe_name}』"),
+                heading_style,
+            )
+        )
+        story.append(Paragraph(pdf_paragraph_text(recipe_text), body_style))
+
+    if home_try:
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph("おうちでTRY", heading_style))
+        story.append(Paragraph(pdf_paragraph_text(home_try), body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 st.subheader("① 給食から食育テーマを発掘")
@@ -224,25 +319,33 @@ newsletter_title = st.text_input(
     selected['title'] if selected else "給食から見つける 食べもののひみつ",
 )
 
+if "final_ready" not in st.session_state:
+    st.session_state.final_ready = False
+
 if st.button("📄 A4食育だより原稿をまとめる", use_container_width=True):
     if not article:
         st.warning("本文を作成してからまとめてください。")
     else:
-        st.header(f"🥢 {newsletter_title}")
-        if selected:
-            st.info(f"💭 **みんなに質問！**\n\n{selected['hook']}")
-        st.write(article)
+        st.session_state.final_ready = True
 
-        if recipe_text:
-            st.markdown(f"### 🍳 おうちで作ってみよう！『{recipe_name}』")
-            st.write(recipe_text)
+if st.session_state.final_ready and article:
+    hook = selected["hook"] if selected else ""
 
-        st.markdown("### 🏠 おうちでTRY")
-        st.write(home_try)
+    st.header(f"🥢 {newsletter_title}")
+    if hook:
+        st.info(f"💭 **みんなに質問！**\n\n{hook}")
+    st.write(article)
 
-        plain_text = f"""{newsletter_title}
+    if recipe_text:
+        st.markdown(f"### 🍳 おうちで作ってみよう！『{recipe_name}』")
+        st.write(recipe_text)
 
-{selected['hook'] if selected else ''}
+    st.markdown("### 🏠 おうちでTRY")
+    st.write(home_try)
+
+    plain_text = f"""{newsletter_title}
+
+{hook}
 
 {article}
 
@@ -252,8 +355,28 @@ if st.button("📄 A4食育だより原稿をまとめる", use_container_width=
 【おうちでTRY】
 {home_try}
 """
+
+    pdf_data = create_pdf(
+        newsletter_title,
+        hook,
+        article,
+        recipe_name,
+        recipe_text,
+        home_try,
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
         st.download_button(
-            "完成原稿をテキストで保存",
+            "📄 PDFで保存",
+            data=pdf_data,
+            file_name="食育だより.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    with col2:
+        st.download_button(
+            "📝 テキストで保存",
             data=plain_text,
             file_name="食育だより原稿.txt",
             mime="text/plain",
