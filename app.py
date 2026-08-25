@@ -11,7 +11,7 @@ st.caption("給食を教材にして、児童が『なぜ？』と思える食�
 # APIキー
 # --------------------
 try:
-    saved_key = st.secrets.get("OPENAI_API_KEY", "")
+    saved_key = st.secrets.get("GEMINI_API_KEY", "")
 except Exception:
     saved_key = ""
 
